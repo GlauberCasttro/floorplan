@@ -1004,15 +1004,26 @@ function recentTip(id) {
 const measure = document.createElement('canvas').getContext('2d');
 const textW = (s, px = 12, w = 500) => { measure.font = `${w} ${px}px Inter, system-ui, sans-serif`; return measure.measureText(s).width; };
 
+/**
+ * The outside services to line up in the last column. ELK only allows a box there when no arrow leaves it
+ * (except to an outgoing connector), so a service that sends something back, like a queue delivering
+ * messages or a bucket announcing new files, is left free instead of failing the whole layout.
+ */
+function lastColumn(view, isExternal) {
+  const outConnectors = new Set(view.connectors.filter((c) => c.side !== 'in').map((c) => c.id));
+  const sends = new Set(view.edges.filter((e) => !outConnectors.has(e.b)).map((e) => e.a));
+  return new Set(view.visible.filter((id) => isExternal(id) && !sends.has(id)));
+}
+
 async function layout(view) {
   const deg = new Map();
   const bump = (id) => deg.set(id, (deg.get(id) || 0) + 1);
   for (const e of view.edges) { bump(e.a); bump(e.b); }
+  const last = lastColumn(view, (id) => id.startsWith('n:') && nodes.get(id.slice(2)).kind === 'external');
   const children = [];
   for (const item of view.visible) {
     const [w, hh] = SIZES[info(item).type] || SIZES.file;
-    const ext = item.startsWith('n:') && nodes.get(item.slice(2)).kind === 'external';
-    children.push({ id: item, width: w, height: Math.max(hh + cardExtraH(item) + (answerNote(item) ? NOTE_H : 0), (deg.get(item) || 0) * 7 + 28), ...(ext ? { layoutOptions: { 'elk.layered.layering.layerConstraint': 'LAST' } } : {}) });
+    children.push({ id: item, width: w, height: Math.max(hh + cardExtraH(item) + (answerNote(item) ? NOTE_H : 0), (deg.get(item) || 0) * 7 + 28), ...(last.has(item) ? { layoutOptions: { 'elk.layered.layering.layerConstraint': 'LAST' } } : {}) });
   }
   for (const c of view.connectors) {
     children.push({ id: c.id, width: clamp(textW(info(c.entity).name, 13) + 84, 150, 320), height: Math.max(42, (deg.get(c.id) || 0) * 7 + 14),
